@@ -1,0 +1,58 @@
+plugins {
+	id 'java'
+}
+
+group = 'com.tabl.signtest'
+version = '1.0.0'
+
+def javaVersion = JavaVersion.toVersion(project.findProperty('java_version') ?: '21')
+
+java {
+	sourceCompatibility = javaVersion
+	targetCompatibility = javaVersion
+}
+
+repositories {
+	mavenCentral()
+	maven {
+		name = 'papermc'
+		url = 'https://repo.papermc.io/repository/maven-public/'
+	}
+	maven {
+		name = 'spigotmc'
+		url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
+	}
+}
+
+// target_platform: "paper" (default) or "spigot". Spigot builds compile
+// against plain spigot-api instead of paper-api — same source, since
+// nothing in this plugin uses a Paper-only API (Adventure Component and
+// Player#kick(Component) are both part of upstream Bukkit/Spigot API as of
+// the 1.20.6/1.21 era, not Paper-exclusive).
+ext {
+	targetPlatform = project.findProperty('target_platform') ?: 'paper'
+	paperApiVersion = project.findProperty('paper_api_version') ?: '1.21.11-R0.1-SNAPSHOT'
+	spigotApiVersion = project.findProperty('spigot_api_version') ?: '1.21.11-R0.1-SNAPSHOT'
+	pluginApiVersion = project.findProperty('plugin_api_version') ?: '1.21'
+}
+
+dependencies {
+	if (targetPlatform == 'spigot') {
+		compileOnly "org.spigotmc:spigot-api:${spigotApiVersion}"
+	} else {
+		compileOnly "io.papermc.paper:paper-api:${paperApiVersion}"
+	}
+}
+
+processResources {
+	inputs.property "version", project.version
+	inputs.property "apiVersion", pluginApiVersion
+
+	filesMatching('plugin.yml') {
+		expand version: project.version, apiVersion: pluginApiVersion
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}

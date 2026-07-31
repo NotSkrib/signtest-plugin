@@ -1,0 +1,173 @@
+# SignTestPlugin — mod-fingerprint guard
+#
+# Uses the sign/anvil translation-key side-channel (MC-265322) to detect
+# whether a joining player has a specific client mod installed, by seeding
+# a sign's lines with translation keys that only that mod's client-side
+# language files register. If the client echoes back resolved text instead
+# of the raw key, that mod is installed.
+#
+# This briefly forces a sign-editor screen open on the player's client as
+# part of the check — that's inherent to the technique, not a bug.
+#
+# This is empty and does nothing by default. Add entries under `mods:` to
+# start enforcing.
+
+enabled: true
+
+# Run the check automatically right after each player joins.
+check-on-join: true
+join-delay-ticks: 40 # 2s; give the client time to finish loading in
+
+# Backstop only: how long to wait for a response before giving up and
+# reporting clean. The sign editor auto-closes and submits on its own
+# almost immediately after opening (see CanaryCheck's class doc — the
+# client is told, via a fake client-only packet, that the sign is gone,
+# which its own screen code treats as a reason to close and submit
+# whatever's currently in the fields), no player interaction and no tuned
+# delay needed. This is just a safety net for high latency; should rarely
+# if ever actually trigger.
+canary-timeout-ticks: 60 # 3 seconds
+
+# When checking multiple mods (join-time only — each is tested on its own
+# sign, never batched together, since a sign with more than one mod's key
+# on it is itself a pattern real gameplay never produces), how long to wait
+# between one check finishing and the next one starting. Rapid-fire sign
+# edits back to back is its own tell, same reasoning as not batching.
+between-checks-ticks: 20 # 1 second
+
+# What to do when a configured mod is detected:
+#   kick     - disconnect the player with `kick-message`, every time
+#   alert    - just notify staff (players with `alert-permission`), no kick
+#   escalate - walks up the `escalation.tiers` ladder below on each catch.
+#              Offense counts persist in offenses.yml across restarts — so
+#              this survives the player just closing their game and
+#              reopening it, not just a single session. Use
+#              `/signtest clearoffense <player>` to reset someone after
+#              they've genuinely removed the mod.
+action: escalate
+
+# Only used when action: kick. Supports '&' color codes (see below).
+kick-message: "&cDisallowed client modification detected."
+
+# Players/staff with this permission are notified in chat whenever a mod is
+# detected, regardless of `action`.
+alert-permission: signtest.alert
+
+# Only used when action: escalate.
+#
+# Each entry is one rung of the ladder: offense #1 uses tiers[0], offense #2
+# uses tiers[1], and so on. Once a player has more offenses than there are
+# tiers, the LAST tier just keeps repeating — so however many tiers you add,
+# it always ends somewhere sensible instead of running out.
+#
+# Each tier:
+#   action:           "kick" or "ban"
+#   duration-minutes: only for action: ban — how long it lasts, 0 = permanent
+#   message:          shown on the kick/ban screen. Supports:
+#     - '&' color/format codes (&c red, &e yellow, &l bold, &r reset, etc.)
+#     - literal newlines (use a YAML block string, like the examples below)
+#     - placeholders: {mod} {player} {duration} {offense}
+escalation:
+  tiers:
+    - action: kick
+      message: |-
+        &c&l⚠ MOD DETECTED ⚠
+        &7
+        &7You were caught running &e&l{mod}&7.
+        &7Remove it before rejoining — this is warning &e#{offense}&7.
+    - action: kick
+      message: |-
+        &c&l⚠ FINAL WARNING ⚠
+        &7
+        &7&e{mod}&7 was detected &c&lagain&7.
+        &7One more time and you &c&lwill be banned&7.
+    - action: ban
+      duration-minutes: 1440 # 24 hours
+      message: |-
+        &4&l⛔ BANNED ⛔
+        &7
+        &7Reason: repeated use of &e{mod}&7 after &e{offense}&7 warnings.
+        &7Duration: &e{duration}
+        &7
+        &7Remove the mod before your ban expires.
+    - action: ban
+      duration-minutes: 0 # permanent — every offense from here on repeats this tier
+      message: |-
+        &4&l⛔ PERMANENTLY BANNED ⛔
+        &7
+        &7Reason: repeated use of &e{mod}&7 after &e{offense}&7 warnings.
+        &7This ban does not expire.
+
+# Each entry is a mod to check for. Two forms:
+#
+#   name: "key"                        — shorthand, mode defaults to translate
+#   name: { key: "key", mode: ... }    — explicit mode
+#
+# mode is one of:
+#   translate - Component.translatable(key) — resolves the key's display text
+#               (e.g. "Toggle Freecam"). Most mods; the default.
+#   keybind   - Component.keybind(key) — resolves to the actual bound
+#               key/button (e.g. "V"). No fallback parameter exists for this
+#               one, so an unbound/unrecognized ID just echoes the raw key
+#               back — that's what "clean" looks like in this mode.
+#
+# Both leak through the same mechanism but a client can block one without
+# blocking the other, so if translate mode isn't catching a mod, try keybind
+# (or vice versa) before assuming it's unaffected. Use
+# `/signtest <player> <key> [translate|keybind]` to test either mode
+# manually against a known install before adding it here for real.
+#
+# You have to find these yourself per mod (unzip the mod's jar, check
+# assets/<modid>/lang/en_us.json for translate-mode candidates — there's no
+# universal list, and using a wrong/shared key will misidentify players.
+#
+# meteor-client and freecam were pulled directly from real jars
+# (meteor-client-1.21.4-42 and freecam-fabric-1.3.2+mc1.21.4 in your
+# Downloads folder) and confirmed to exist in their actual lang files.
+# Freecam uses keybind mode because that's what worked in testing.
+#
+# Everything else below is copied from a known-working reference
+# implementation (https://github.com/branduzzo/CheckHacks, MIT-licensed)
+# rather than independently verified against real jars the way the two
+# above were — treat these as a good starting point, not guaranteed-current
+# (mods get updated, keys can change or get patched, e.g. Wurst 7.41.1+
+# patched both its translate and keybind vectors per wurst.wiki, so its
+# entry below may no longer catch current Wurst versions specifically).
+# Worth spot-checking with `/signtest <player> <key> [mode]` against a real
+# install if a particular one matters to you.
+mods:
+  meteor-client: "key.meteor-client.open-gui"
+  freecam:
+    key: "key.freecam.toggle"
+    mode: keybind
+  liquidbounce: "liquidbounce.module.killaura.name"
+  wurst:
+    key: "key.wurst.zoom"
+    mode: keybind
+  xray-fabric:
+    key: "xray.config.toggle"
+    mode: keybind
+  chestesp:
+    key: "key.chestesp.toggle"
+    mode: keybind
+  killaura-fabric:
+    key: "key.killaura"
+    mode: keybind
+  autofish:
+    key: "key.autofish.open_gui"
+    mode: keybind
+  lumina:
+    key: "key.lumina.open_click_gui"
+    mode: keybind
+  autoswitch:
+    key: "key.autoswitch.toggle"
+    mode: keybind
+  bleachhack: "bleachhack.module.killaura"
+  aristois: "emc.module.killaura.name"
+  coffee: "coffee.module.killaura.name"
+  world-downloader: "key.wdl.startStop"
+  autoclicker-fabric: "autoclicker-fabric.hud.holding"
+  antiafk: "key.antiafk.toggle"
+  auto-clicker-mc:
+    key: "key.auto-clicker_.toggle"
+    mode: keybind

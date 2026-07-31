@@ -1,0 +1,26 @@
+name: SignTestPlugin
+version: '${version}'
+main: com.tabl.signtest.SignTestPlugin
+api-version: '${apiVersion}'
+author: Tabl
+description: >
+  Detects configured client mods via the sign/anvil translation-key
+  side-channel (MC-265322) and kicks or alerts on a match. See config.yml
+  to configure which mods to detect and how to respond. Also includes a
+  manual /signtest command for confirming a translation key before adding
+  it to the config.
+commands:
+  signtest:
+    description: Fire a manual canary sign-translation check, or reload config.
+    usage: /signtest <player> <translationKey>  |  /signtest reload
+    permission: signtest.use
+permissions:
+  signtest.use:
+    description: Allows running manual sign-translation canary checks and reloading config.
+    default: op
+  signtest.bypass:
+    description: Exempts a player from the automatic join-time mod guard.
+    default: op
+  signtest.alert:
+    description: Receive a chat alert whenever the join-time guard detects a configured mod.
+    default: op
